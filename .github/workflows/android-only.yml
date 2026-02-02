@@ -1,0 +1,93 @@
+name: Android Only Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ proform_bike_325_csx_PFEX439210INT_0 ]
+
+jobs:
+  android-build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Xvfb install and run
+        run: |
+          sudo apt-get install -y xvfb
+          Xvfb -ac :99 -screen 0 1280x780x24 &
+      
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          submodules: 'false'
+        
+      - name: Checkout submodules with specific branches
+        run: |
+          git submodule init
+          git submodule update --init --recursive 
+      
+      - name: Install packages required to run QZ inside workflow
+        run: sudo apt update -y && sudo apt-get install -y qtbase5-dev qtchooser qt5-qmake qtbase5-dev-tools qtquickcontrols2-5-dev libqt5bluetooth5 libqt5widgets5 libqt5positioning5 libqt5xml5 qtconnectivity5-dev qtpositioning5-dev libqt5charts5-dev libqt5charts5 libqt5networkauth5-dev libqt5websockets5* libxcb-randr0-dev libxcb-xtest0-dev libxcb-xinerama0-dev libxcb-shape0-dev libxcb-xkb-dev
+
+      - name: Install Qt Android
+        uses: jdpurcell/install-qt-action@v5
+        with:
+          version: '5.15.0'
+          host: 'linux'
+          target: 'android'
+          arch: 'android'
+          modules: 'qtcharts  qtnetworkauth'
+          dir: '${{ github.workspace }}/output/android/'
+          cache: 'true'
+          cache-key-prefix: 'install-qt-action-android'
+
+      - name: Install Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '11.0.23+9'
+          
+      - name: patching qt for bluetooth
+        run: cp qt-patches/android/5.15.0/jar/*.* ${{ github.workspace }}/output/android/Qt/5.15.0/android/jar/
+
+      - name: download 3rd party files for qthttpserver
+        run: cp qHttpServerBin/5.15.2/headers/* src/qthttpserver/src/3rdparty/http-parser/
+
+      - name: Set Android NDK 21 && build
+        run: |
+          ANDROID_ROOT="/usr/local/lib/android"
+          ANDROID_SDK_ROOT="${ANDROID_ROOT}/sdk"
+          SDKMANAGER="${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+          echo "y" | $SDKMANAGER "ndk;21.4.7075529"
+          export ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk-bundle"
+          export ANDROID_NDK_ROOT="${ANDROID_NDK}"
+          cd src
+          echo "#define STRAVA_SECRET_KEY \"\"" > secret.h
+          echo "#define PELOTON_SECRET_KEY \"\"" >> secret.h
+          echo "#define SMTP_USERNAME \"\"" >> secret.h
+          echo "#define SMTP_PASSWORD \"\"" >> secret.h
+          echo "#define SMTP_SERVER \"\"" >> secret.h
+          echo "#define INTERVALSICU_CLIENT_ID \"\"" >> secret.h
+          echo "#define INTERVALSICU_CLIENT_SECRET \"\"" >> secret.h
+          echo "" >> inner_templates/googlemaps/cesium-key.js
+          echo "#define LICENSE" >> secret.h
+          cd ..
+          ln -sfn $ANDROID_SDK_ROOT/ndk/21.4.7075529 $ANDROID_NDK
+          rm -rf /usr/local/lib/android/sdk/ndk/25.1.8937393
+          cd src/qthttpserver 
+          qmake
+          make -j8
+          make install
+          cd ../..          
+          
+          qmake -spec android-clang 'ANDROID_ABIS=armeabi-v7a arm64-v8a x86 x86_64' 'ANDROID_NDK_ROOT=/usr/local/lib/android/sdk/ndk/21.4.7075529' && make -j4 && make INSTALL_ROOT=${{ github.workspace }}/output/android/ install
+          sed -i '1s|{|{\n   "android-extra-libs": "${{ github.workspace }}/android_openssl/no-asm/latest/arm/libcrypto_1_1.so,${{ github.workspace }}/android_openssl/no-asm/latest/arm/libssl_1_1.so,${{ github.workspace }}/android_openssl/no-asm/latest/arm64/libcrypto_1_1.so,${{ github.workspace }}/android_openssl/no-asm/latest/arm64/libssl_1_1.so,${{ github.workspace }}/android_openssl/no-asm/latest/x86/libcrypto_1_1.so,${{ github.workspace }}/android_openssl/no-asm/latest/x86/libssl_1_1.so,${{ github.workspace }}/android_openssl/no-asm/latest/x86_64/libcrypto_1_1.so,${{ github.workspace }}/android_openssl/no-asm/latest/x86_64/libssl_1_1.so",|' src/android-qdomyos-zwift-deployment-settings.json
+          cat src/android-qdomyos-zwift-deployment-settings.json
+      
+      - name: Build APK
+        run: cd src; androiddeployqt --input android-qdomyos-zwift-deployment-settings.json --output ${{ github.workspace }}/output/android/ --android-platform android-31 --gradle --aab
+
+      - name: Archive apk binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: fdroid-android-trial
+          path: ${{ github.workspace }}/output/android/build/outputs/apk/debug/android-debug.apk
