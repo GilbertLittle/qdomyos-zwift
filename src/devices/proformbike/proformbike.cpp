@@ -15,6 +15,10 @@
 
 using namespace std::chrono_literals;
 
+QDateTime m_settleUntil;
+int m_initialPollIntervalMs = 500; // slower early cadence
+int m_normalPollIntervalMs = 200;  // original cadence
+
 proformbike::proformbike(bool noWriteResistance, bool noHeartService, int8_t bikeResistanceOffset,
                          double bikeResistanceGain) {
     m_watt.setType(metric::METRIC_WATT, deviceType());
@@ -26,7 +30,12 @@ proformbike::proformbike(bool noWriteResistance, bool noHeartService, int8_t bik
     this->bikeResistanceOffset = bikeResistanceOffset;
     initDone = false;
     connect(refresh, &QTimer::timeout, this, &proformbike::update);
-    refresh->start(200ms);
+    
+    if (proform_bike_325_csx_PFEX439210INT_0) {
+        refresh->start(std::chrono::milliseconds(m_initialPollIntervalMs));
+    } else {
+        refresh->start(200ms);
+    }
 }
 
 void proformbike::writeCharacteristic(uint8_t *data, uint8_t data_len, const QString &info, bool disable_log,
@@ -955,6 +964,12 @@ bool proformbike::innerWriteResistance() {
 void proformbike::update() {
     if (m_control->state() == QLowEnergyController::UnconnectedState) {
         emit disconnected();
+        return;
+    }
+
+    // Defer periodic traffic during settle for this model
+    if (proform_bike_325_csx_PFEX439210INT_0 && QDateTime::currentDateTime() < m_settleUntil) {
+        // still compute metrics if you have lastPacket, but skip no-op writes
         return;
     }
 
@@ -3435,186 +3450,218 @@ void proformbike::btinit() {
             writeCharacteristic(initData37, sizeof(initData37), QStringLiteral("init"), false, false);
             QThread::msleep(400);
         } else if (proform_bike_325_csx_PFEX439210INT_0) {
-        // ProForm 325 CSX PFEX439210INT.0 initialization sequence
-        max_resistance = 22;
+            // ProForm 325 CSX PFEX439210INT.0 initialization sequence
+            max_resistance = 22;
+        
+            // Phase A: lightweight 0xFE/0xFF wake alternating
+            uint8_t init1[] = {0xfe, 0x02, 0x08, 0x02};
+            uint8_t init2[] = {0xff, 0x08, 0x02, 0x04, 0x02, 0x04, 0x02, 0x04, 0x81, 0x87,
+                               0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+            uint8_t init3[] = {0xfe, 0x02, 0x08, 0x02};
+            uint8_t init4[] = {0xff, 0x08, 0x02, 0x04, 0x02, 0x04, 0x07, 0x04, 0x80, 0x8b,
+                               0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+            uint8_t init5[] = {0xfe, 0x02, 0x08, 0x02};
+            uint8_t init6[] = {0xff, 0x08, 0x02, 0x04, 0x02, 0x04, 0x07, 0x04, 0x88, 0x93,
+                               0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
-        // Initialization frames extracted from btsnoop log (frames 630-1700)
-        uint8_t init1[] = {0xfe, 0x02, 0x08, 0x02};
-        uint8_t init2[] = {0xff, 0x08, 0x02, 0x04, 0x02, 0x04, 0x02, 0x04, 0x81, 0x87, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-        uint8_t init3[] = {0xfe, 0x02, 0x08, 0x02};
-        uint8_t init4[] = {0xff, 0x08, 0x02, 0x04, 0x02, 0x04, 0x07, 0x04, 0x80, 0x8b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-        uint8_t init5[] = {0xfe, 0x02, 0x08, 0x02};
-        uint8_t init6[] = {0xff, 0x08, 0x02, 0x04, 0x02, 0x04, 0x07, 0x04, 0x88, 0x93, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-        uint8_t init7[] = {0xfe, 0x02, 0x08, 0x02};
-        uint8_t init8[] = {0xff, 0x08, 0x02, 0x04, 0x02, 0x04, 0x02, 0x04, 0x81, 0x87, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-        uint8_t init9[] = {0xfe, 0x02, 0x08, 0x02};
-        uint8_t init10[] = {0xff, 0x08, 0x02, 0x04, 0x02, 0x04, 0x07, 0x04, 0x80, 0x8b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-        uint8_t init11[] = {0xfe, 0x02, 0x08, 0x02};
-        uint8_t init12[] = {0xff, 0x08, 0x02, 0x04, 0x02, 0x04, 0x07, 0x04, 0x88, 0x93, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-        uint8_t init13[] = {0xfe, 0x02, 0x0b, 0x02};
-        uint8_t init14[] = {0xff, 0x0b, 0x02, 0x04, 0x02, 0x07, 0x02, 0x07, 0x82, 0x00, 0x00, 0x00, 0x8b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-        uint8_t init15[] = {0xfe, 0x02, 0x0a, 0x02};
-        uint8_t init16[] = {0xff, 0x0a, 0x02, 0x04, 0x02, 0x06, 0x02, 0x06, 0x84, 0x00, 0x00, 0x8c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-        uint8_t init17[] = {0xfe, 0x02, 0x08, 0x02};
-        uint8_t init18[] = {0xff, 0x08, 0x02, 0x04, 0x02, 0x04, 0x02, 0x04, 0x95, 0x9b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-        uint8_t init19[] = {0xfe, 0x02, 0x2c, 0x04};
-        uint8_t init20[] = {0x00, 0x12, 0x02, 0x04, 0x02, 0x28, 0x07, 0x28, 0x90, 0x07, 0x01, 0xba, 0x54, 0xec, 0x82, 0x26, 0xc8, 0x68, 0x0e, 0xa2};
-        uint8_t init21[] = {0x01, 0x12, 0x5c, 0xf4, 0xaa, 0x5e, 0x10, 0xa0, 0x76, 0x0a, 0xc4, 0x9c, 0x52, 0x16, 0xd8, 0x98, 0x5e, 0x12, 0xcc, 0x84};
-        uint8_t init22[] = {0xff, 0x08, 0x7a, 0x2e, 0x20, 0x98, 0x02, 0x00, 0x00, 0x2b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-        uint8_t init23[] = {0xfe, 0x02, 0x19, 0x03};
-        uint8_t init24[] = {0x00, 0x12, 0x02, 0x04, 0x02, 0x15, 0x07, 0x15, 0x02, 0x0e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-        uint8_t init25[] = {0xff, 0x07, 0x00, 0x00, 0x00, 0x10, 0x01, 0x00, 0x3d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-        uint8_t init26[] = {0xfe, 0x02, 0x17, 0x03};
-        uint8_t init27[] = {0x00, 0x12, 0x02, 0x04, 0x02, 0x13, 0x07, 0x13, 0x02, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-        uint8_t init28[] = {0xff, 0x05, 0x00, 0x80, 0x01, 0x00, 0xa9, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-        uint8_t init29[] = {0xfe, 0x02, 0x19, 0x03};
-        uint8_t init30[] = {0x00, 0x12, 0x02, 0x04, 0x02, 0x15, 0x07, 0x15, 0x02, 0x00, 0x0f, 0x00, 0x10, 0x00, 0xc0, 0x1c, 0x4c, 0x00, 0x00, 0xe0};
-        uint8_t init31[] = {0xff, 0x07, 0x00, 0x00, 0x00, 0x10, 0x00, 0x08, 0x5d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-        uint8_t init32[] = {0xfe, 0x02, 0x17, 0x03};
-        uint8_t init33[] = {0x00, 0x12, 0x02, 0x04, 0x02, 0x13, 0x07, 0x13, 0x02, 0x00, 0x0d, 0x3c, 0x96, 0x31, 0x00, 0x10, 0x40, 0x40, 0x00, 0x80};
-        uint8_t init34[] = {0xff, 0x05, 0x00, 0x00, 0x00, 0x85, 0xc1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-        uint8_t init35[] = {0xfe, 0x02, 0x19, 0x03};
-        uint8_t init36[] = {0x00, 0x12, 0x02, 0x04, 0x02, 0x15, 0x07, 0x15, 0x02, 0x0e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-        uint8_t init37[] = {0xff, 0x07, 0x00, 0x00, 0x00, 0x10, 0x01, 0x00, 0x3d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-        uint8_t init38[] = {0xfe, 0x02, 0x10, 0x02};
-        uint8_t init39[] = {0xff, 0x10, 0x02, 0x04, 0x02, 0x0c, 0x07, 0x0c, 0x02, 0x04, 0x00, 0x00, 0x00, 0x02, 0xe4, 0x1f, 0x00, 0x1e, 0x00, 0x00};
-        uint8_t init40[] = {0xfe, 0x02, 0x19, 0x03};
-        uint8_t init41[] = {0x00, 0x12, 0x02, 0x04, 0x02, 0x15, 0x07, 0x15, 0x02, 0x00, 0x0f, 0x80, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-        uint8_t init42[] = {0xff, 0x07, 0x00, 0x00, 0x00, 0x10, 0x00, 0x10, 0x0d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-        uint8_t init43[] = {0xfe, 0x02, 0x10, 0x02};
-        uint8_t init44[] = {0xff, 0x10, 0x02, 0x04, 0x02, 0x0c, 0x07, 0x0c, 0x02, 0x05, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x2a, 0x00, 0x00};
-        uint8_t init45[] = {0xfe, 0x02, 0x0c, 0x02};
-        uint8_t init46[] = {0xff, 0x0c, 0x02, 0x04, 0x02, 0x08, 0x07, 0x08, 0x02, 0x00, 0x02, 0x00, 0x10, 0x23, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-        uint8_t init47[] = {0xfe, 0x02, 0x10, 0x02};
-        uint8_t init48[] = {0xff, 0x10, 0x02, 0x04, 0x02, 0x0c, 0x07, 0x0c, 0x02, 0x04, 0x00, 0x00, 0x00, 0x02, 0xe4, 0x1f, 0x00, 0x1e, 0x00, 0x00};
-        uint8_t init49[] = {0xfe, 0x02, 0x10, 0x02};
-        uint8_t init50[] = {0xff, 0x10, 0x02, 0x04, 0x02, 0x0c, 0x07, 0x0c, 0x02, 0x05, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x2a, 0x00, 0x00};
-        uint8_t init51[] = {0xfe, 0x02, 0x17, 0x03};
-        uint8_t init52[] = {0x00, 0x12, 0x02, 0x04, 0x02, 0x13, 0x07, 0x13, 0x02, 0x00, 0x0d, 0x3c, 0x96, 0x31, 0x00, 0x10, 0x40, 0x40, 0x00, 0x80};
-        uint8_t init53[] = {0xff, 0x05, 0x00, 0x00, 0x00, 0x85, 0xc1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-        uint8_t init54[] = {0xfe, 0x02, 0x0c, 0x02};
-        uint8_t init55[] = {0xff, 0x0c, 0x02, 0x04, 0x02, 0x08, 0x07, 0x08, 0x02, 0x00, 0x02, 0x00, 0x10, 0x23, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-        uint8_t init56[] = {0xfe, 0x02, 0x19, 0x03};
-        uint8_t init57[] = {0x00, 0x12, 0x02, 0x04, 0x02, 0x15, 0x07, 0x15, 0x02, 0x00, 0x0f, 0x80, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-        uint8_t init58[] = {0xff, 0x07, 0x00, 0x00, 0x00, 0x10, 0x00, 0x10, 0x0d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+            // Send with modest delays (still 400ms) but sync first FF to avoid pipeline overlap
+            writeCharacteristic(init1, sizeof(init1), QStringLiteral("init a1"), false, false);
+            QThread::msleep(400);
+            writeCharacteristic(init2, sizeof(init2), QStringLiteral("init a2"), false, true);
+            QThread::msleep(400);
+            writeCharacteristic(init3, sizeof(init3), QStringLiteral("init a3"), false, false);
+            QThread::msleep(400);
+            writeCharacteristic(init4, sizeof(init4), QStringLiteral("init a4"), false, false);
+            QThread::msleep(400);
+            writeCharacteristic(init5, sizeof(init5), QStringLiteral("init a5"), false, false);
+            QThread::msleep(400);
+            writeCharacteristic(init6, sizeof(init6), QStringLiteral("init a6"), false, true);
+            QThread::msleep(400);
 
-        // Write initialization sequence
-        writeCharacteristic(init1, sizeof(init1), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init2, sizeof(init2), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init3, sizeof(init3), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init4, sizeof(init4), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init5, sizeof(init5), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init6, sizeof(init6), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init7, sizeof(init7), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init8, sizeof(init8), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init9, sizeof(init9), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init10, sizeof(init10), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init11, sizeof(init11), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init12, sizeof(init12), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init13, sizeof(init13), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init14, sizeof(init14), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init15, sizeof(init15), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init16, sizeof(init16), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init17, sizeof(init17), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init18, sizeof(init18), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init19, sizeof(init19), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init20, sizeof(init20), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init21, sizeof(init21), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init22, sizeof(init22), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init23, sizeof(init23), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init24, sizeof(init24), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init25, sizeof(init25), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init26, sizeof(init26), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init27, sizeof(init27), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init28, sizeof(init28), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init29, sizeof(init29), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init30, sizeof(init30), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init31, sizeof(init31), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init32, sizeof(init32), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init33, sizeof(init33), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init34, sizeof(init34), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init35, sizeof(init35), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init36, sizeof(init36), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init37, sizeof(init37), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init38, sizeof(init38), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init39, sizeof(init39), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init40, sizeof(init40), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init41, sizeof(init41), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init42, sizeof(init42), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init43, sizeof(init43), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init44, sizeof(init44), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init45, sizeof(init45), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init46, sizeof(init46), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init47, sizeof(init47), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init48, sizeof(init48), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init49, sizeof(init49), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init50, sizeof(init50), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init51, sizeof(init51), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init52, sizeof(init52), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init53, sizeof(init53), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init54, sizeof(init54), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init55, sizeof(init55), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init56, sizeof(init56), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init57, sizeof(init57), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
-        writeCharacteristic(init58, sizeof(init58), QStringLiteral("init"), false, false);
-        QThread::msleep(400);
+            // Short settle before the identity/config block
+            QThread::msleep(800);
+
+            // Phase B: identity/config trio (0x2c + 0x00/0x01 payloads)
+            uint8_t init19[] = {0xfe, 0x02, 0x2c, 0x04};
+            uint8_t init20[] = {0x00, 0x12, 0x02, 0x04, 0x02, 0x28, 0x07, 0x28, 0x90, 0x07,
+                                0x01, 0xba, 0x54, 0xec, 0x82, 0x26, 0xc8, 0x68, 0x0e, 0xa2};
+            uint8_t init21[] = {0x01, 0x12, 0x5c, 0xf4, 0xaa, 0x5e, 0x10, 0xa0, 0x76, 0x0a,
+                                0xc4, 0x9c, 0x52, 0x16, 0xd8, 0x98, 0x5e, 0x12, 0xcc, 0x84};
+            uint8_t init22[] = {0xff, 0x08, 0x7a, 0x2e, 0x20, 0x98, 0x02, 0x00, 0x00, 0x2b,
+                                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+            writeCharacteristic(init19, sizeof(init19), QStringLiteral("init b0"), false, false);
+            QThread::msleep(400);
+            writeCharacteristic(init20, sizeof(init20), QStringLiteral("init b1"), false, true);
+            QThread::msleep(450);
+            writeCharacteristic(init21, sizeof(init21), QStringLiteral("init b2"), false, false);
+            QThread::msleep(450);
+            writeCharacteristic(init22, sizeof(init22), QStringLiteral("init b3"), false, false);
+            QThread::msleep(450);
+
+            // Short settle before service activation loops
+            QThread::msleep(800);
+
+            // Phase C: one clean pass of 19/0012/ff07 and 17/0012/ff05
+            uint8_t init23[] = {0xfe, 0x02, 0x19, 0x03};
+            uint8_t init24[] = {0x00, 0x12, 0x02, 0x04, 0x02, 0x15, 0x07, 0x15, 0x02, 0x0e,
+                                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+            uint8_t init25[] = {0xff, 0x07, 0x00, 0x00, 0x00, 0x10, 0x01, 0x00, 0x3d, 0x00,
+                                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+            uint8_t init26[] = {0xfe, 0x02, 0x17, 0x03};
+            uint8_t init27[] = {0x00, 0x12, 0x02, 0x04, 0x02, 0x13, 0x07, 0x13, 0x02, 0x0c,
+                                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+            uint8_t init28[] = {0xff, 0x05, 0x00, 0x80, 0x01, 0x00, 0xa9, 0x00, 0x00, 0x00,
+                                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+            writeCharacteristic(init23, sizeof(init23), QStringLiteral("init c1"), false, false);
+            QThread::msleep(400);
+            writeCharacteristic(init24, sizeof(init24), QStringLiteral("init c2"), false, true);
+            QThread::msleep(450);
+            writeCharacteristic(init25, sizeof(init25), QStringLiteral("init c3"), false, false);
+            QThread::msleep(450);
+            writeCharacteristic(init26, sizeof(init26), QStringLiteral("init c4"), false, false);
+            QThread::msleep(400);
+            writeCharacteristic(init27, sizeof(init27), QStringLiteral("init c5"), false, true);
+            QThread::msleep(450);
+            writeCharacteristic(init28, sizeof(init28), QStringLiteral("init c6"), false, false);
+            QThread::msleep(450);
+
+            // Short settle again
+            QThread::msleep(800);
+
+            uint8_t init29[] = {0xfe, 0x02, 0x19, 0x03};
+            uint8_t init30[] = {0x00, 0x12, 0x02, 0x04, 0x02, 0x15, 0x07, 0x15, 0x02, 0x00, 0x0f, 0x00, 0x10, 0x00, 0xc0, 0x1c, 0x4c, 0x00, 0x00, 0xe0};
+            uint8_t init31[] = {0xff, 0x07, 0x00, 0x00, 0x00, 0x10, 0x00, 0x08, 0x5d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+            uint8_t init32[] = {0xfe, 0x02, 0x17, 0x03};
+            uint8_t init33[] = {0x00, 0x12, 0x02, 0x04, 0x02, 0x13, 0x07, 0x13, 0x02, 0x00, 0x0d, 0x3c, 0x96, 0x31, 0x00, 0x10, 0x40, 0x40, 0x00, 0x80};
+            uint8_t init34[] = {0xff, 0x05, 0x00, 0x00, 0x00, 0x85, 0xc1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+            uint8_t init35[] = {0xfe, 0x02, 0x19, 0x03};
+            uint8_t init36[] = {0x00, 0x12, 0x02, 0x04, 0x02, 0x15, 0x07, 0x15, 0x02, 0x0e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+            uint8_t init37[] = {0xff, 0x07, 0x00, 0x00, 0x00, 0x10, 0x01, 0x00, 0x3d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+            uint8_t init38[] = {0xfe, 0x02, 0x10, 0x02};
+            uint8_t init39[] = {0xff, 0x10, 0x02, 0x04, 0x02, 0x0c, 0x07, 0x0c, 0x02, 0x04, 0x00, 0x00, 0x00, 0x02, 0xe4, 0x1f, 0x00, 0x1e, 0x00, 0x00};
+            uint8_t init40[] = {0xfe, 0x02, 0x19, 0x03};
+            uint8_t init41[] = {0x00, 0x12, 0x02, 0x04, 0x02, 0x15, 0x07, 0x15, 0x02, 0x00, 0x0f, 0x80, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+            uint8_t init42[] = {0xff, 0x07, 0x00, 0x00, 0x00, 0x10, 0x00, 0x10, 0x0d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+            uint8_t init43[] = {0xfe, 0x02, 0x10, 0x02};
+            uint8_t init44[] = {0xff, 0x10, 0x02, 0x04, 0x02, 0x0c, 0x07, 0x0c, 0x02, 0x05, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x2a, 0x00, 0x00};
+            uint8_t init45[] = {0xfe, 0x02, 0x0c, 0x02};
+            uint8_t init46[] = {0xff, 0x0c, 0x02, 0x04, 0x02, 0x08, 0x07, 0x08, 0x02, 0x00, 0x02, 0x00, 0x10, 0x23, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+            uint8_t init47[] = {0xfe, 0x02, 0x10, 0x02};
+            uint8_t init48[] = {0xff, 0x10, 0x02, 0x04, 0x02, 0x0c, 0x07, 0x0c, 0x02, 0x04, 0x00, 0x00, 0x00, 0x02, 0xe4, 0x1f, 0x00, 0x1e, 0x00, 0x00};
+            uint8_t init49[] = {0xfe, 0x02, 0x10, 0x02};
+            uint8_t init50[] = {0xff, 0x10, 0x02, 0x04, 0x02, 0x0c, 0x07, 0x0c, 0x02, 0x05, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x2a, 0x00, 0x00};
+            uint8_t init51[] = {0xfe, 0x02, 0x17, 0x03};
+            uint8_t init52[] = {0x00, 0x12, 0x02, 0x04, 0x02, 0x13, 0x07, 0x13, 0x02, 0x00, 0x0d, 0x3c, 0x96, 0x31, 0x00, 0x10, 0x40, 0x40, 0x00, 0x80};
+            uint8_t init53[] = {0xff, 0x05, 0x00, 0x00, 0x00, 0x85, 0xc1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+            uint8_t init54[] = {0xfe, 0x02, 0x0c, 0x02};
+            uint8_t init55[] = {0xff, 0x0c, 0x02, 0x04, 0x02, 0x08, 0x07, 0x08, 0x02, 0x00, 0x02, 0x00, 0x10, 0x23, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+            uint8_t init56[] = {0xfe, 0x02, 0x19, 0x03};
+            uint8_t init57[] = {0x00, 0x12, 0x02, 0x04, 0x02, 0x15, 0x07, 0x15, 0x02, 0x00, 0x0f, 0x80, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+            uint8_t init58[] = {0xff, 0x07, 0x00, 0x00, 0x00, 0x10, 0x00, 0x10, 0x0d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+                   // Phase D: remaining config blocks (trim duplicates is risky across models, so keep content but add syncs)
+            // Keep your existing sequences from init29..init58, but for this model increase spacing slightly and
+            // set wait_for_response=true on the first 0x00 payload in each sub-phase.
+
+            // Sub-phase D1: 19/0012/ff07
+            writeCharacteristic(init29, sizeof(init29), QStringLiteral("init d1"), false, false);
+            QThread::msleep(420);
+            writeCharacteristic(init30, sizeof(init30), QStringLiteral("init d2"), false, true);
+            QThread::msleep(480); // sync on first 0x00 payload
+            writeCharacteristic(init31, sizeof(init31), QStringLiteral("init d3"), false, false);
+            QThread::msleep(480);
+
+            // Sub-phase D2: 17/0012/ff05
+            writeCharacteristic(init32, sizeof(init32), QStringLiteral("init d4"), false, false);
+            QThread::msleep(420);
+            writeCharacteristic(init33, sizeof(init33), QStringLiteral("init d5"), false, true);
+            QThread::msleep(480);
+            writeCharacteristic(init34, sizeof(init34), QStringLiteral("init d6"), false, false);
+            QThread::msleep(480);
+
+            // Sub-phase D3: 19/0012/ff07 (status variant)
+            writeCharacteristic(init35, sizeof(init35), QStringLiteral("init d7"), false, false);
+            QThread::msleep(420);
+            writeCharacteristic(init36, sizeof(init36), QStringLiteral("init d8"), false, true);
+            QThread::msleep(480);
+            writeCharacteristic(init37, sizeof(init37), QStringLiteral("init d9"), false, false);
+            QThread::msleep(480);
+
+            // Sub-phase D4: 10/ff10 cfg A
+            writeCharacteristic(init38, sizeof(init38), QStringLiteral("init d10"), false, false);
+            QThread::msleep(420);
+            writeCharacteristic(init39, sizeof(init39), QStringLiteral("init d11"), false, true);
+            QThread::msleep(480);
+
+            // Sub-phase D5: 19/0012/ff07 (mode variant)
+            writeCharacteristic(init40, sizeof(init40), QStringLiteral("init d12"), false, false);
+            QThread::msleep(420);
+            writeCharacteristic(init41, sizeof(init41), QStringLiteral("init d13"), false, true);
+            QThread::msleep(480);
+            writeCharacteristic(init42, sizeof(init42), QStringLiteral("init d14"), false, false);
+            QThread::msleep(480);
+
+            // Sub-phase D6: 10/ff10 cfg B
+            writeCharacteristic(init43, sizeof(init43), QStringLiteral("init d15"), false, false);
+            QThread::msleep(420);
+            writeCharacteristic(init44, sizeof(init44), QStringLiteral("init d16"), false, true);
+            QThread::msleep(480);
+
+            // Sub-phase D7: 0c/ff0c cfg
+            writeCharacteristic(init45, sizeof(init45), QStringLiteral("init d17"), false, false);
+            QThread::msleep(420);
+            writeCharacteristic(init46, sizeof(init46), QStringLiteral("init d18"), false, true);
+            QThread::msleep(480);
+
+            // Sub-phase D8: 10/ff10 cfg A repeat
+            writeCharacteristic(init47, sizeof(init47), QStringLiteral("init d19"), false, false);
+            QThread::msleep(420);
+            writeCharacteristic(init48, sizeof(init48), QStringLiteral("init d20"), false, true);
+            QThread::msleep(480);
+
+            // Sub-phase D9: 10/ff10 cfg B repeat
+            writeCharacteristic(init49, sizeof(init49), QStringLiteral("init d21"), false, false);
+            QThread::msleep(420);
+            writeCharacteristic(init50, sizeof(init50), QStringLiteral("init d22"), false, true);
+            QThread::msleep(480);
+
+            // Sub-phase D10: 17/0012/ff05 (status/report)
+            writeCharacteristic(init51, sizeof(init51), QStringLiteral("init d23"), false, false);
+            QThread::msleep(420);
+            writeCharacteristic(init52, sizeof(init52), QStringLiteral("init d24"), false, true);
+            QThread::msleep(480);
+            writeCharacteristic(init53, sizeof(init53), QStringLiteral("init d25"), false, false);
+            QThread::msleep(480);
+
+            // Sub-phase D11: 0c/ff0c cfg repeat
+            writeCharacteristic(init54, sizeof(init54), QStringLiteral("init d26"), false, false);
+            QThread::msleep(420);
+            writeCharacteristic(init55, sizeof(init55), QStringLiteral("init d27"), false, true);
+            QThread::msleep(480);
+
+            // Sub-phase D12: 19/0012/ff07 final
+            writeCharacteristic(init56, sizeof(init56), QStringLiteral("init d28"), false, false);
+            QThread::msleep(420);
+            writeCharacteristic(init57, sizeof(init57), QStringLiteral("init d29"), false, true);
+            QThread::msleep(480);
+            writeCharacteristic(init58, sizeof(init58), QStringLiteral("init d30"), false, false);
+            QThread::msleep(480);
+
+            // Final quiet period
+            QThread::msleep(1200);
+
+            // Ramp poller back to normal cadence after settle
+            m_settleUntil = QDateTime::currentDateTime().addMSecs(1200);
+            initDone = true;
+            QTimer::singleShot(1500, this, [this]() {
+                if (refresh) {
+                    refresh->stop();
+                    refresh->start(std::chrono::milliseconds(m_normalPollIntervalMs));
+                }
+            });
+            return;
         } else {
 
             uint8_t initData10[] = {0x00, 0x12, 0x02, 0x04, 0x02, 0x28, 0x07, 0x28, 0x90, 0x07,
@@ -3708,6 +3755,11 @@ void proformbike::stateChanged(QLowEnergyService::ServiceState state) {
 
 void proformbike::descriptorWritten(const QLowEnergyDescriptor &descriptor, const QByteArray &newValue) {
     emit debug(QStringLiteral("descriptorWritten ") + descriptor.name() + " " + newValue.toHex(' '));
+
+    // Allow CCCD to settle for this model to avoid early disconnects
+    if (proform_bike_325_csx_PFEX439210INT_0) {
+        m_settleUntil = QDateTime::currentDateTime().addMSecs(1200);
+    }
 
     initRequest = true;
     emit connectedAndDiscovered();
